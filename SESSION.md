@@ -4,7 +4,7 @@
 > decile *"leé SESSION.md y seguimos por donde quedamos"*. Este archivo se mantiene actualizado al
 > cerrar cada fase.
 
-Última actualización: **2026-05-16** · Sesión cerrada al final de **Fase 6** (con Fase 7 ya hecha).
+Última actualización: **2026-05-16** · Sesión cerrada al final de **Fase 8** (validadores).
 
 ---
 
@@ -55,7 +55,46 @@ Vitest · `tsx` para scripts. **`typedRoutes: true`** en `next.config.ts`.
 
 ---
 
-## 4. Lo último que se hizo (Fase 6 — UI conectada al backend)
+## 4. Lo último que se hizo (Fase 8 — validadores de calidad)
+
+Tres scripts para auditar la calidad de la DB sin hacer cambios — útiles antes de un
+release o después de cada `import:obsidian`.
+
+### Scripts nuevos
+
+- [`scripts/lib/validate.ts`](ande-examen-web/scripts/lib/validate.ts) — `ValidationReport` con `error/warn/info`, agrupa por categoría e imprime un dashboard. Exit code 1 si hay errores.
+- [`scripts/validate-questions.ts`](ande-examen-web/scripts/validate-questions.ts) — chequea: sin tema, sin opciones, sin opción correcta (salvo borrador), múltiples correctas, opciones repetidas, sin explicación, sin fuente, fuentes sin página, IA pendiente de revisión, duplicados por statement normalizado.
+- [`scripts/validate-sources.ts`](ande-examen-web/scripts/validate-sources.ts) — chequea: grupos de duplicados sin canónica única, documentos con error de procesamiento, sin sha256, sin uso, Sources sin página ni sección, OCR flags con confidence < 0.5.
+- [`scripts/validate-knowledge.ts`](ande-examen-web/scripts/validate-knowledge.ts) — stub para `KnowledgeChunk` (aún vacío) + valida contradicciones existentes.
+
+### Resultado del primer run en la DB actual
+
+```
+validate:questions
+  errors    1   ← TAA-006 sin fuente asociada (caso real de la wiki)
+  warnings  2   ← SAEE-015 opciones repetidas, SAEE-010 sin explicación
+  info     83   ← 79 "fuentes sin página" (esperable) + 4 borrador
+
+validate:sources
+  errors    0
+  warnings  1   ← OCR flags con confidence < 0.5
+  info     68   ← documentos no citados todavía (la mayoría son TAACATA fotos)
+
+validate:knowledge
+  info      1   ← KnowledgeChunk vacío (esperable hasta Fase 14)
+```
+
+### Reglas codificadas
+
+- `borrador` no falla por "sin opción correcta" — es justamente lo que define el status.
+- `requiere_verificacion` SÍ falla si no tiene fuente (la pregunta promete una cita).
+- `requiresVerification` a nivel `Question` ya cubre "todas las fuentes dudosas"; el validador no duplica el warning.
+- `confidence < 0.5` sin `requiresVerification:true` es bug (inconsistencia interna).
+- Duplicados por statement normalizado: warning (a veces son variantes legítimas, requieren ojo humano).
+
+---
+
+## 4-bis. Lo hecho en Fase 6 (UI conectada al backend)
 
 Reemplazo total de `lib/mock-data.ts` (queda en el repo por compatibilidad temporal, pero ya
 ningún page lo importa). Todas las páginas son Server Components que leen de Prisma directo
@@ -213,31 +252,25 @@ Questions by topic:
 
 ---
 
-## 5. Decisión pendiente al retomar (post Fase 6)
+## 5. Decisión pendiente al retomar (post Fase 8)
 
-El loop de estudio funciona end-to-end: login → elegir tema → quiz con feedback inmediato y
-fuentes → resultado → dashboard de progreso. Quedan tres caminos razonables:
+Siguiendo el orden numérico del prompt fundacional:
 
-### A — Fase 14 (agente IA con Vercel AI SDK) **[más alto impacto]**
-Llenar `KnowledgeChunk` con los `.md` de `wiki/temas/`, `wiki/datos/`, `wiki/casos/`, y montar
-el chat en `/agente` con tool calling (`searchKnowledge`, `getQuestionById`, etc.). Implica:
-- Instalar `ai` + provider (`@ai-sdk/anthropic` o `@ai-sdk/openai`).
-- Script `scripts/import-chunks.ts` que parse Markdown y persista chunks con `topicId` y `sourceId`.
-- Búsqueda híbrida (texto + ranking simple) en `lib/ai/rag.ts`.
-- Sistema de tools en `lib/ai/tools.ts` y prompt en `lib/ai/prompts.ts`.
+- **Fase 9-10 — Diseño avanzado + dashboard de progreso personalizado**: sidebar, gráfico de
+  desempeño por tema, recomendaciones automáticas, más componentes shadcn (Dialog, Sheet, Tabs),
+  modal de fuente. El dashboard ya está parcialmente, falta el gráfico y la tarjeta de
+  recomendación tipo "tu rendimiento en Pliego es bajo, te sugerimos…".
+- **Fase 11 — Buscador de conocimiento**: input global que busca en `Question`, `Source`,
+  `SourceDocument`, `Topic`. Página `/buscar?q=...` con resultados agrupados por tipo.
+- **Fase 12 — Modo examen avanzado**: temporizador, persistencia del set asignado al intento
+  (resuelve el bug de refresh actual), bloqueo de "atrás" del navegador opcional.
+- **Fase 13 — Perfil/settings/roles**: `/profile`, `/settings`, middleware para `/admin/*` ya
+  existe pero faltan las pages.
+- **Fase 14 — Agente IA** (donde dejaste explícito que va en su número).
+- **Fase 15 — Panel de revisión admin** para los 4 `borrador` + 1 `requiere_verificacion`.
 
-### B — Fase 8 (revisión de los 4 borrador + NP-006)
-Crear `/admin/revision` para `reviewer`/`admin`: listar `status: borrador`, mostrar respuesta vs
-opciones, dejar editar manualmente. También permite validar las preguntas en `requiere_verificacion`.
-
-### C — Polish + features sueltas
-- Botón "guardar pregunta" en el quiz.
-- Persistir el set de preguntas asignadas a un simulacro (resolver el refresh issue).
-- Botón "siguiente intento del mismo tema" en `/quiz/resultado`.
-- Página de perfil `/profile` + `/settings`.
-
-**Mi sugerencia para la próxima sesión:** **A**. El proyecto cobra valor real cuando el tutor IA
-puede explicar respuestas usando la wiki como fuente.
+**Próximo paso:** Fase 9-10. El sidebar y el gráfico son los que más mejoran la sensación de
+"app seria" sin necesidad de IA.
 
 ---
 
@@ -257,6 +290,11 @@ npm run db:seed                  # idempotente
 
 # Importar contenido de la wiki Obsidian a la DB (idempotente)
 npm run import:obsidian          # corre import:sources + import:questions
+
+# Validar calidad de la DB (no muta nada)
+npm run validate:questions
+npm run validate:sources
+npm run validate:knowledge
 
 # Verificar contadores en la DB
 npx tsx scripts/db-stats.ts
