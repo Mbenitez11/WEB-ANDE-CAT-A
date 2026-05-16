@@ -1,12 +1,12 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { redirect } from "next/navigation";
-import { ArrowUpRight } from "lucide-react";
 import { Topbar } from "@/components/layout/topbar";
 import { Footer } from "@/components/layout/footer";
 import { StatTile } from "@/components/stat-tile";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { TopicChart, type TopicChartRow } from "@/components/dashboard/topic-chart";
+import { RecommendationCard } from "@/components/dashboard/recommendation";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { getTopicsWithStats, getUserProgress } from "@/lib/data";
@@ -27,6 +27,18 @@ export default async function DashboardPage() {
 
   const totalWrong = progress.totalAnswered - progress.totalCorrect;
   const lastAttempt = progress.attempts[0];
+
+  const chartRows: TopicChartRow[] = topics.map((t) => {
+    const p = progress.progress.find((p) => p.topic.slug === t.slug);
+    return {
+      slug: t.slug,
+      name: t.name,
+      answeredCount: p?.answeredCount ?? 0,
+      correctCount: p?.correctCount ?? 0,
+      accuracy: p?.accuracy ?? 0,
+      questionCount: t.questionCount,
+    };
+  });
 
   return (
     <>
@@ -53,7 +65,7 @@ export default async function DashboardPage() {
             hint={
               totalQuestions === 0
                 ? "Sin preguntas en la DB"
-                : `${Math.round((progress.totalAnswered / totalQuestions) * 100)}% del banco`
+                : `${Math.round((progress.totalAnswered / Math.max(1, totalQuestions)) * 100)}% del banco`
             }
           />
           <StatTile
@@ -83,71 +95,31 @@ export default async function DashboardPage() {
           />
         </div>
 
-        {progress.weakTopics.length > 0 ? (
-          <section className="mt-16">
-            <div className="eyebrow text-muted-foreground">Recomendación</div>
+        <section className="mt-12 grid gap-6 lg:grid-cols-3">
+          <div className="lg:col-span-1">
+            <RecommendationCard
+              weakTopics={progress.weakTopics.map((p) => ({
+                slug: p.topic.slug,
+                name: p.topic.name,
+                accuracy: p.accuracy,
+                answeredCount: p.answeredCount,
+              }))}
+              overallAccuracy={progress.overallAccuracy}
+              totalAnswered={progress.totalAnswered}
+            />
+          </div>
+          <div className="lg:col-span-2">
+            <div className="eyebrow text-muted-foreground">Progreso por tema</div>
             <h2 className="display-section mt-3 text-2xl text-foreground">
-              Temas débiles para reforzar
+              Cobertura y aciertos
             </h2>
-            <ul className="mt-6 space-y-3">
-              {progress.weakTopics.map((p) => (
-                <li
-                  key={p.id}
-                  className="flex items-center justify-between rounded-md border border-border bg-card p-5"
-                >
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="warning">
-                        {Math.round(p.accuracy * 100)}% accuracy
-                      </Badge>
-                      <span className="font-mono text-2xs uppercase tracking-wider text-muted-foreground">
-                        {p.answeredCount} respondidas · {p.wrongCount} errores
-                      </span>
-                    </div>
-                    <p className="mt-2 font-display text-lg text-foreground">{p.topic.name}</p>
-                  </div>
-                  <Button asChild variant="outline">
-                    <Link href={`/quiz/${p.topic.slug}` as Route}>
-                      Repasar <ArrowUpRight className="size-4" />
-                    </Link>
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
-
-        <section className="mt-16">
-          <div className="eyebrow text-muted-foreground">Temario completo</div>
-          <h2 className="display-section mt-3 text-2xl text-foreground">Progreso por tema</h2>
-          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {topics.map((t) => (
-              <Link
-                key={t.slug}
-                href={`/temas/${t.slug}` as Route}
-                className="group rounded-md border border-border bg-card p-5 transition-all hover:border-border-strong"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="eyebrow text-muted-foreground">{t.code}</span>
-                  <span className="font-mono text-2xs tabular-nums text-muted-foreground">
-                    {Math.round(t.progress * 100)}%
-                  </span>
-                </div>
-                <p className="mt-3 font-display text-md text-foreground">{t.name}</p>
-                <div className="mt-4 h-px w-full bg-border">
-                  <div
-                    className="h-px bg-primary transition-all"
-                    style={{ width: `${Math.max(2, t.progress * 100)}%` }}
-                  />
-                </div>
-                <div className="mt-3 flex items-center justify-between text-2xs text-muted-foreground">
-                  <span>{t.questionCount} preguntas</span>
-                  <span className="font-medium text-foreground/80 transition-colors group-hover:text-primary">
-                    Abrir →
-                  </span>
-                </div>
-              </Link>
-            ))}
+            <p className="mt-2 text-xs text-muted-foreground">
+              La franja oscura es cobertura (respondidas sobre el total del banco). La franja
+              de color superpuesta marca aciertos.
+            </p>
+            <div className="mt-4">
+              <TopicChart rows={chartRows} />
+            </div>
           </div>
         </section>
 
@@ -165,7 +137,8 @@ export default async function DashboardPage() {
                         {a.topic?.name ?? "Mixto"}
                       </div>
                       <div className="font-mono text-2xs uppercase tracking-wider text-muted-foreground">
-                        {a.correctCount}/{a.totalQuestions} correctas
+                        {a.correctCount}/{a.totalQuestions} correctas ·{" "}
+                        {Math.round(a.score)}%
                       </div>
                     </div>
                   </div>

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Route } from "next";
 import {
   Activity,
   ArrowRight,
@@ -15,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { SourceChip } from "@/components/source-chip";
 import { StatTile } from "@/components/stat-tile";
 import { Badge } from "@/components/ui/badge";
+import { db } from "@/lib/db";
 
 const CAPABILITIES = [
   {
@@ -68,7 +70,18 @@ const CAPABILITIES = [
   },
 ] as const;
 
-export default function HomePage() {
+async function getLandingStats() {
+  const [questions, docs, ocrFlags, sources] = await Promise.all([
+    db.question.count({ where: { status: "validada" } }),
+    db.sourceDocument.count({ where: { duplicateOfId: null } }),
+    db.ocrFlag.count(),
+    db.source.count(),
+  ]);
+  return { questions, docs, ocrFlags, sources };
+}
+
+export default async function HomePage() {
+  const stats = await getLandingStats();
   return (
     <>
       <Topbar />
@@ -152,24 +165,24 @@ export default function HomePage() {
           <aside className="lg:col-span-5 lg:border-l lg:border-border lg:pl-10">
             <div className="grid grid-cols-2 gap-px bg-border">
               <StatTile
-                label="Preguntas curadas"
-                value="240"
-                hint="banco inicial · obsidian + simulacro"
+                label="Preguntas validadas"
+                value={stats.questions}
+                hint="obsidian + simulacro"
               />
               <StatTile
-                label="Fuentes indexadas"
-                value="34"
+                label="Documentos fuente"
+                value={stats.docs}
                 hint="pdf · docx · imagen"
                 intent="primary"
               />
               <StatTile
-                label="Datos numéricos"
-                value="350"
-                hint="valor · unidad · vigencia"
+                label="Citas indexadas"
+                value={stats.sources}
+                hint="documento · página · sección"
               />
               <StatTile
                 label="OCR pendiente"
-                value="18"
+                value={stats.ocrFlags}
                 hint="fragmentos a verificar"
                 intent="warning"
               />
@@ -198,7 +211,7 @@ export default function HomePage() {
           {CAPABILITIES.map((c) => (
             <Link
               key={c.code}
-              href={c.href as never}
+              href={c.href as Route}
               className="group relative flex flex-col bg-card p-6 transition-colors hover:bg-muted/40 lg:p-8"
             >
               <div className="flex items-center justify-between">
