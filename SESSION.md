@@ -4,7 +4,7 @@
 > decile *"leé SESSION.md y seguimos por donde quedamos"*. Este archivo se mantiene actualizado al
 > cerrar cada fase.
 
-Última actualización: **2026-05-16** · Sesión cerrada al final de **Fase 5**.
+Última actualización: **2026-05-16** · Sesión cerrada al final de **Fase 7**.
 
 ---
 
@@ -41,7 +41,7 @@ Vitest · `tsx` para scripts. **`typedRoutes: true`** en `next.config.ts`.
 | 4    | Frontend con mocks                | ✅ hecho        |
 | 5    | Backend / API + NextAuth          | ✅ hecho (2026-05-16) |
 | 6    | Motor de quizzes — UI conectada   | 🔜 **siguiente** |
-| 7    | Importador Obsidian               | 🔜 **siguiente** (decisión pendiente: cuál arrancar primero) |
+| 7    | Importador Obsidian               | ✅ hecho (2026-05-16) |
 | 8    | Generador/validador de preguntas  | pendiente       |
 | 9–10 | Diseño avanzado + dashboard real  | pendiente       |
 | 11   | Buscador de conocimiento          | pendiente       |
@@ -55,7 +55,60 @@ Vitest · `tsx` para scripts. **`typedRoutes: true`** en `next.config.ts`.
 
 ---
 
-## 4. Lo último que se hizo (Fase 5 — auth + API)
+## 4. Lo último que se hizo (Fase 7 — importador Obsidian)
+
+### Scripts nuevos
+
+- [`scripts/lib/io.ts`](ande-examen-web/scripts/lib/io.ts) — `loadDotenv`, `parseCsv`, `ImportLogger`, helpers de paths.
+- [`scripts/lib/parse-question.ts`](ande-examen-web/scripts/lib/parse-question.ts) — parser de bloques `## <ID> | <enunciado>` de los bancos Obsidian. Tolerante a `**bold**` markdown, matching de respuesta con cascada (exacto → parcial → borrador).
+- [`scripts/lib/topic-resolver.ts`](ande-examen-web/scripts/lib/topic-resolver.ts) — mapeo de slugs Obsidian (incl. sub-temas/aliases) a los 6 temas raíz.
+- [`scripts/import-sources.ts`](ande-examen-web/scripts/import-sources.ts) — lee `INVENTARIO_ARCHIVOS.csv` (99 docs) + `DUDAS_OCR_TRANSCRIPCION.md` (18 flags). Upsert por `externalId`. Resuelve `duplicateOfId` en 2 pasadas.
+- [`scripts/import-questions.ts`](ande-examen-web/scripts/import-questions.ts) — lee `wiki/preguntas/banco-preguntas-*.md`. Crea/actualiza Question + AnswerOption + Source + QuestionSource. Idempotente por `externalId`.
+- [`scripts/import-obsidian.ts`](ande-examen-web/scripts/import-obsidian.ts) — orquestador: spawnSync `npm run import:sources` + `npm run import:questions`.
+- [`scripts/db-stats.ts`](ande-examen-web/scripts/db-stats.ts) — helper para verificar contadores rápidos.
+
+### Reglas de negocio aplicadas por el importer
+
+| Condición | Resultado |
+|---|---|
+| Respuesta no matchea ninguna opción | `status: borrador`, sin opción `isCorrect: true` |
+| Tema resuelto + ≥1 fuente | `status: validada` |
+| Sin tema mapeado o sin fuentes | `status: requiere_verificacion` |
+| Fuente sin página o doc con `processingState` que contiene "OCR"/"imagen" | `Source.requiresVerification: true` |
+| Todas las fuentes de la pregunta son `requiresVerification: true` | `Question.requiresVerification: true` |
+| Documento marcado como duplicado (DUP* en CSV) | `duplicateOfId` linkea a la fuente canónica |
+| OCR flags con `reviewed: true` | NO se borran (acción humana persistente) |
+
+### Estado de la DB después del importer
+
+```
+SourceDocument : 99
+OcrFlag        : 18
+Source         : 12
+Question       : 84   (79 validada, 4 borrador, 1 requiere_verificacion)
+AnswerOption   : 334
+QuestionSource : 89
+
+Questions by topic:
+  reglamento-baja-tension      31
+  reglamento-media-tension     15
+  pliego-tarifas               29
+  norma-paraguaya-np-2028       5
+  laboratorio-taa               2
+  saee                          2
+```
+
+### Pendientes conocidos (no rompen nada, son TODOs reales)
+
+- **5 preguntas no entran (4 borrador + 1 rechazada)**: formato de respuesta multi-formato (ej. "3,77 A, aproximadamente 4 A") que no matchea con opciones tipo "3,77 A". Reviewer humano debe corregir manualmente.
+- **NP-006** sin opciones (línea malformada en la wiki original). Reportar al usuario o saltar.
+- **saee/laboratorio-taa quedaron con 2 preguntas cada uno** — la mayoría de bancos SAEE/TAA son casos numéricos con respuestas que no matchean opciones exactas (caen a `borrador`). Es esperable y refleja los datos reales.
+- **KnowledgeChunk no se importa todavía** — los chunks para RAG son Fase 14 (agente IA). Si querés que el buscador funcione antes, conviene agregar un importer simple que lea `wiki/temas/*.md` y `wiki/datos/*.md`.
+- **Contradicciones**: no se importaron desde `wiki/contradicciones/*.md`. Pendiente para Fase 15 o cuando se trabaje el panel de revisión.
+
+---
+
+## 4-bis. Lo hecho en Fase 5 (auth + API)
 
 ### Archivos nuevos / clave
 
@@ -108,24 +161,28 @@ Vitest · `tsx` para scripts. **`typedRoutes: true`** en `next.config.ts`.
 
 ---
 
-## 5. Decisión pendiente al retomar
+## 5. Decisión pendiente al retomar (post Fase 7)
 
-El frontend ya tiene UI de quiz/temas con mocks, pero la DB todavía no tiene preguntas. Hay dos
-caminos razonables:
+La DB ya tiene **79 preguntas validadas** con fuentes, distribuidas en 6 temas. El frontend
+todavía consume `lib/mock-data.ts`. El siguiente paso natural es **Fase 6**: conectar la UI a la API.
 
-### Opción A — Fase 7 primero (importador Obsidian) **[recomendado]**
-Llenar la DB con preguntas/chunks/fuentes reales desde la wiki antes de conectar el frontend.
-- Crear `ande-examen-web/scripts/import-obsidian.ts` que lea `OBSIDIAN_VAULT_PATH`.
-- Usar `gray-matter` para Markdown (ya está instalado).
-- Reglas duras: idempotente, sin inventar páginas, marcar `requiresVerification:true` si no hay
-  página, persistir contradicciones detectadas, NO eliminar nada.
-- Cuando termine, hacer reset/seed + reimport: `npm run prisma:reset && npm run db:seed && npm run import:obsidian`.
+### Plan sugerido para la próxima sesión
 
-### Opción B — Conectar frontend a la API primero (Fase 6 parcial)
-Reemplazar mocks en `/temas` por fetch a `/api/topics` (los 6 temas seed). Útil para ver que
-el cableado funciona, pero `/quiz/[topic]` seguirá mostrando vacío hasta que haya preguntas.
+1. **`/temas`** → consumir `/api/topics` (ya devuelve `_count.questions` por tema, útil para
+   tarjetas).
+2. **`/temas/[slug]`** → consumir `/api/topics/[slug]` + `/api/questions?topic=...&limit=10`.
+3. **`/quiz/[topic]`** → reemplazar mock por:
+   - `POST /api/quiz/start` con `{ mode: "tema", topicSlug, questionCount: 10 }`.
+   - Loop `POST /api/quiz/answer` por pregunta.
+   - `POST /api/quiz/finish` al cerrar.
+   - Mostrar fuentes solo después de responder (modo `practica`) o al final (`simulacro`).
+   - Badge ⚠ cuando `question.requiresVerification === true`.
+4. **`/repaso`** → `POST /api/quiz/start` con `mode: "repaso"`.
+5. **`/simulacro`** → form de configuración → `POST /api/quiz/start` con `mode: "simulacro"`.
+6. **`/dashboard`** → consumir `/api/progress` (resumen + weakTopics).
 
-**Mi sugerencia para la próxima sesión:** Opción A.
+Una vez Fase 6 funcione, lo natural es Fase 8 (validaciones de calidad — los 4 borrador) o Fase 14
+(agente IA con `KnowledgeChunk` — requiere importar la wiki de temas/datos como chunks).
 
 ---
 
@@ -142,6 +199,12 @@ npm run typecheck
 # DB
 npx prisma migrate dev           # aplica migraciones nuevas si hay
 npm run db:seed                  # idempotente
+
+# Importar contenido de la wiki Obsidian a la DB (idempotente)
+npm run import:obsidian          # corre import:sources + import:questions
+
+# Verificar contadores en la DB
+npx tsx scripts/db-stats.ts
 
 # Dev server
 npm run dev                      # http://localhost:3000
