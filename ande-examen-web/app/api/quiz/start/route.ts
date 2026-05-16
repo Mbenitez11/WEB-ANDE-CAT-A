@@ -24,14 +24,19 @@ export async function POST(req: Request) {
     ? await db.topic.findUnique({ where: { slug: input.topicSlug }, select: { id: true } })
     : null;
 
+  // En modo simulacro: 90 segundos por pregunta (estándar holgado). null para otros modos.
+  const timeLimitSeconds = input.mode === "simulacro" ? questions.length * 90 : null;
+
   const attempt = await db.quizAttempt.create({
     data: {
       userId: session.user.id,
       mode: input.mode,
       topicId: topic?.id ?? null,
       totalQuestions: questions.length,
+      assignedQuestionIds: questions.map((q) => q.id).join(","),
+      timeLimitSeconds,
     },
-    select: { id: true, mode: true, createdAt: true, totalQuestions: true },
+    select: { id: true, mode: true, createdAt: true, totalQuestions: true, timeLimitSeconds: true },
   });
 
   return NextResponse.json({

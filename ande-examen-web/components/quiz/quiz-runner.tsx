@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
-import { Check, ChevronRight, Loader2, X } from "lucide-react";
+import { Check, ChevronRight, Clock, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,8 @@ export type RunnerAttempt = {
   mode: QuizMode;
   totalQuestions: number;
   createdAt: string;
+  /** Si > 0, muestra temporizador y auto-finaliza al llegar a 0. */
+  timeLimitSeconds?: number | null;
 };
 
 type Props = {
@@ -55,6 +57,12 @@ type AnswerResult = {
     requiresVerification: boolean;
   }>;
 };
+
+function formatClock(s: number): string {
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+}
 
 const DIFF_LABEL: Record<string, string> = {
   basica: "Básica",
@@ -83,6 +91,21 @@ export function QuizRunner({
   const [finishing, setFinishing] = React.useState(false);
   const [stats, setStats] = React.useState({ correct: 0, wrong: 0 });
   const [startedAt] = React.useState(() => Date.now());
+  const [secondsLeft, setSecondsLeft] = React.useState<number | null>(
+    attempt.timeLimitSeconds && attempt.timeLimitSeconds > 0 ? attempt.timeLimitSeconds : null,
+  );
+
+  // Timer
+  React.useEffect(() => {
+    if (secondsLeft == null) return;
+    if (secondsLeft <= 0) {
+      void finishAttempt();
+      return;
+    }
+    const t = setTimeout(() => setSecondsLeft((s) => (s == null ? null : s - 1)), 1000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [secondsLeft]);
 
   const question = questions[currentIdx];
   const isLast = currentIdx === questions.length - 1;
@@ -209,10 +232,28 @@ export function QuizRunner({
             Modo: {attempt.mode}
           </div>
         </div>
-        <div className="text-right font-mono text-xs tabular-nums text-muted-foreground">
-          <span className="text-success">{stats.correct}</span>
-          <span className="mx-1">·</span>
-          <span className="text-destructive">{stats.wrong}</span>
+        <div className="flex items-center gap-4">
+          {secondsLeft != null ? (
+            <div
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-xs border px-2 py-1 font-mono text-xs tabular-nums",
+                secondsLeft <= 60
+                  ? "border-destructive bg-destructive-subtle/40 text-destructive"
+                  : secondsLeft <= 300
+                    ? "border-warning bg-warning-subtle/40 text-warning"
+                    : "border-border bg-card text-muted-foreground",
+              )}
+              title="Tiempo restante"
+            >
+              <Clock className="size-3.5" strokeWidth={1.5} />
+              {formatClock(secondsLeft)}
+            </div>
+          ) : null}
+          <div className="text-right font-mono text-xs tabular-nums text-muted-foreground">
+            <span className="text-success">{stats.correct}</span>
+            <span className="mx-1">·</span>
+            <span className="text-destructive">{stats.wrong}</span>
+          </div>
         </div>
       </header>
 

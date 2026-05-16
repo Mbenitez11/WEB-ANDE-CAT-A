@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Activity, BookOpen, FileText, ListChecks, RotateCcw, Sparkles } from "lucide-react";
+import type { Route } from "next";
+import { Activity, BookOpen, FileText, ListChecks, RotateCcw, Search, Sparkles } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { UserMenu } from "@/components/layout/user-menu";
 import { cn } from "@/lib/utils";
@@ -10,6 +11,7 @@ const NAV = [
   { href: "/simulacro", label: "Simulacro", icon: ListChecks },
   { href: "/repaso", label: "Repaso", icon: RotateCcw },
   { href: "/fuentes", label: "Fuentes", icon: FileText },
+  { href: "/buscar", label: "Buscar", icon: Search },
   { href: "/agente", label: "Agente", icon: Sparkles },
 ] as const;
 
@@ -38,7 +40,7 @@ export function Topbar({ className }: { className?: string }) {
           {NAV.map((item) => (
             <Link
               key={item.href}
-              href={item.href}
+              href={item.href as Route}
               className="inline-flex items-center gap-2 rounded-sm px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
             >
               <item.icon className="size-3.5" strokeWidth={1.5} />

@@ -269,6 +269,12 @@ model QuizAttempt {
   blankCount      Int      @default(0)
   score           Float    @default(0)
   durationSeconds Int      @default(0)
+  // CSV de question.id asignados al intento. Garantiza que el set sea estable
+  // entre refreshes (sobre todo en modo `simulacro`). Si está vacío, el motor
+  // selecciona on-the-fly (compat con intentos viejos).
+  assignedQuestionIds String?
+  // segundos límite para modo examen (null = sin límite)
+  timeLimitSeconds Int?
   finishedAt      DateTime?
   createdAt       DateTime @default(now())
 

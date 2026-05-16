@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import type { Route } from "next";
 import { useSession, signOut } from "next-auth/react";
-import { LogOut, User } from "lucide-react";
+import { LogOut } from "lucide-react";
 
 export function UserMenu() {
   const { data, status } = useSession();
@@ -36,9 +37,9 @@ export function UserMenu() {
   return (
     <div className="flex items-center gap-2">
       <Link
-        href="/dashboard"
+        href={"/profile" as Route}
         className="hidden items-center gap-2 rounded-sm px-2 py-1 text-sm text-foreground transition-colors hover:bg-muted sm:inline-flex"
-        title={name}
+        title={`Perfil de ${name}`}
       >
         <span className="flex size-7 items-center justify-center rounded-sm bg-primary/15 font-mono text-xs text-primary">
           {initial}

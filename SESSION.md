@@ -4,7 +4,7 @@
 > decile *"leé SESSION.md y seguimos por donde quedamos"*. Este archivo se mantiene actualizado al
 > cerrar cada fase.
 
-Última actualización: **2026-05-16** · Sesión cerrada al final de **Fase 8** (validadores).
+Última actualización: **2026-05-16** · Sesión cerrada al final de **Fase 13** (perfil). Quedan Fases 14 (IA), 15 (panel revisión), 21 (tests), 22-23 (docs + deploy).
 
 ---
 
@@ -55,7 +55,35 @@ Vitest · `tsx` para scripts. **`typedRoutes: true`** en `next.config.ts`.
 
 ---
 
-## 4. Lo último que se hizo (Fase 8 — validadores de calidad)
+## 4. Lo último que se hizo (Fases 9-13)
+
+### Fase 9-10: dashboard avanzado + landing con stats reales
+- [`components/dashboard/topic-chart.tsx`](ande-examen-web/components/dashboard/topic-chart.tsx) — gráfico de cobertura+aciertos por tema (dos barras superpuestas, CSS puro, sin librería). Color de accuracy: verde ≥75%, ámbar ≥50%, rojo <50%.
+- [`components/dashboard/recommendation.tsx`](ande-examen-web/components/dashboard/recommendation.tsx) — tarjeta de recomendación automática con 4 escenarios: bienvenida (<5 respondidas), simulacro (accuracy ≥85%), refuerzo de tema débil, default.
+- `/dashboard` reorganizado: stats + recomendación (col-1) + chart (col-2) + historial.
+- `/` (landing) ahora lee stats reales de la DB (questions/docs/sources/ocrFlags) en lugar de hardcodes.
+
+### Fase 11: buscador interno
+- [`app/buscar/page.tsx`](ande-examen-web/app/buscar/page.tsx) — busca en Question, Topic, SourceDocument, Source.
+- [`app/api/search/route.ts`](ande-examen-web/app/api/search/route.ts) — mismo backend para usar desde el agente IA (Fase 14).
+- Link "Buscar" agregado al topbar.
+- SQLite no soporta `mode:"insensitive"`, así que hace 2 queries: una con `q` y otra con `qLower`.
+
+### Fase 12: modo examen con persistencia y timer
+- **Migración** `20260516185210_add_attempt_assignment_and_timer`: agrega `assignedQuestionIds String?` y `timeLimitSeconds Int?` a `QuizAttempt`.
+- `/api/quiz/start` ahora persiste el set de preguntas asignadas como CSV de IDs y, en modo simulacro, calcula `timeLimitSeconds = totalQuestions * 90`.
+- `/simulacro/[attemptId]` carga las preguntas desde `assignedQuestionIds` (ordenadas como se guardaron). Refrescar la URL ya no cambia las preguntas.
+- `QuizRunner` muestra reloj cuando `timeLimitSeconds > 0`, cambia a ámbar a 5min y rojo a 1min, auto-finaliza al llegar a 0.
+
+### Fase 13: perfil del usuario
+- [`app/profile/page.tsx`](ande-examen-web/app/profile/page.tsx) + [`components/profile/profile-form.tsx`](ande-examen-web/components/profile/profile-form.tsx) — edita nombre, nombre visible, carrera, objetivo, dificultad preferida.
+- Usa `PATCH /api/me` (que ya existía).
+- Avatar del topbar ahora linkea a `/profile`.
+- `/settings` queda como TODO (no necesario inmediato; el form de perfil cubre el caso de uso real).
+
+---
+
+## 4-bis. Lo hecho en Fase 8 (validadores de calidad)
 
 Tres scripts para auditar la calidad de la DB sin hacer cambios — útiles antes de un
 release o después de cada `import:obsidian`.
@@ -252,25 +280,39 @@ Questions by topic:
 
 ---
 
-## 5. Decisión pendiente al retomar (post Fase 8)
+## 5. Decisión pendiente al retomar (post Fase 13)
 
-Siguiendo el orden numérico del prompt fundacional:
+Siguiendo el orden numérico, lo que viene:
 
-- **Fase 9-10 — Diseño avanzado + dashboard de progreso personalizado**: sidebar, gráfico de
-  desempeño por tema, recomendaciones automáticas, más componentes shadcn (Dialog, Sheet, Tabs),
-  modal de fuente. El dashboard ya está parcialmente, falta el gráfico y la tarjeta de
-  recomendación tipo "tu rendimiento en Pliego es bajo, te sugerimos…".
-- **Fase 11 — Buscador de conocimiento**: input global que busca en `Question`, `Source`,
-  `SourceDocument`, `Topic`. Página `/buscar?q=...` con resultados agrupados por tipo.
-- **Fase 12 — Modo examen avanzado**: temporizador, persistencia del set asignado al intento
-  (resuelve el bug de refresh actual), bloqueo de "atrás" del navegador opcional.
-- **Fase 13 — Perfil/settings/roles**: `/profile`, `/settings`, middleware para `/admin/*` ya
-  existe pero faltan las pages.
-- **Fase 14 — Agente IA** (donde dejaste explícito que va en su número).
-- **Fase 15 — Panel de revisión admin** para los 4 `borrador` + 1 `requiere_verificacion`.
+### Fase 14 — Agente IA (Vercel AI SDK) **[siguiente]**
 
-**Próximo paso:** Fase 9-10. El sidebar y el gráfico son los que más mejoran la sensación de
-"app seria" sin necesidad de IA.
+Es lo único grande que falta del producto. Implica:
+
+1. Instalar `ai` + un provider (`@ai-sdk/anthropic` o `@ai-sdk/openai`).
+2. Crear `scripts/import-chunks.ts` que parsea los `.md` de `wiki/temas/`, `wiki/datos/`,
+   `wiki/casos/`, `wiki/contradicciones/` y persiste `KnowledgeChunk` con `topicId`, `sourceId`
+   (cuando se pueda derivar del frontmatter `fuentes`), `requiresVerification` heredado.
+3. `lib/ai/rag.ts` — búsqueda híbrida (texto contains + ranking por overlap, hasta tener
+   embeddings).
+4. `lib/ai/tools.ts` con: `searchKnowledge`, `getQuestionById`, `generateMiniQuiz` (genera en
+   memoria, no persiste), `explainWrongAnswer`, `recommendStudyPlan`.
+5. `lib/ai/prompts.ts` con el system prompt del tutor (ya tenés el texto en el prompt
+   fundacional).
+6. `app/api/ai/chat/route.ts` con `streamText` + tool calling.
+7. `app/agente/page.tsx` con UI de chat (usar `useChat` del AI SDK).
+
+**Requisito:** Mathias decide qué proveedor IA usar y carga la API key en `.env`. Sin eso, el
+script de import-chunks corre igual pero el chat no responde.
+
+### Fase 15 — Panel de revisión `/admin/revision`
+
+Para los 4 borradores y la 1 pregunta en `requiere_verificacion` que dejó el importer. Solo
+accesible para `reviewer`/`admin`. Listar, editar, aprobar.
+
+### Después
+
+- Fase 21 (tests con vitest)
+- Fase 22-23 (README final + deploy a Vercel)
 
 ---
 
