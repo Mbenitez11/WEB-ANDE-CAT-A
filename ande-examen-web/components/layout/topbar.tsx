@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Activity, BookOpen, FileText, ListChecks, RotateCcw, Sparkles } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { UserMenu } from "@/components/layout/user-menu";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -47,18 +48,7 @@ export function Topbar({ className }: { className?: string }) {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
-          <Link
-            href="/login"
-            className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground sm:inline-block"
-          >
-            Iniciar sesión
-          </Link>
-          <Link
-            href="/register"
-            className="hidden h-8 items-center justify-center rounded-sm border border-border-strong bg-card px-3 text-sm font-medium transition-colors hover:bg-muted sm:inline-flex"
-          >
-            Crear cuenta
-          </Link>
+          <UserMenu />
           <ThemeToggle />
         </div>
       </div>

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Route } from "next";
 import { ArrowUpRight, FileText } from "lucide-react";
 import { Topbar } from "@/components/layout/topbar";
 import { Footer } from "@/components/layout/footer";
@@ -79,7 +80,7 @@ export default function FuentesPage() {
                   </td>
                   <td className="px-4 py-4 text-right">
                     <Link
-                      href={`/fuentes/${s.externalId.toLowerCase()}`}
+                      href={`/fuentes/${s.externalId.toLowerCase()}` as Route}
                       className="inline-flex items-center gap-1 text-2xs font-medium uppercase tracking-wider text-muted-foreground transition-colors hover:text-primary"
                     >
                       <FileText className="size-3" strokeWidth={1.5} />
