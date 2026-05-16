@@ -135,6 +135,10 @@ model SourceDocument {
   processingState     String?                    // texto embebido / OCR / etc.
   duplicateGroup      String?                    // "DUP013"
   duplicateOfId       String?                    // fuente canónica
+  // URL pública (sitio ANDE u otra) para que el usuario abra el doc original
+  publicUrl           String?
+  // Página índice donde se lista este doc (ej. mesa_examinadora.php)
+  indexUrl            String?
   notes               String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt

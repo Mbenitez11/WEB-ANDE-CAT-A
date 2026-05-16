@@ -25,8 +25,40 @@ import path from "node:path";
 import { ImportLogger, loadDotenv, readText, requireEnv, requirePath } from "./lib/io";
 import { parseQuestionBlock, splitQuestionBlocks } from "./lib/parse-question";
 import { resolveDifficulty, resolveTopicSlug } from "./lib/topic-resolver";
+import { restoreAccents } from "./lib/accents";
 
 loadDotenv();
+
+/**
+ * Lista explícita de preguntas que pertenecen a un "caso resuelto" continuo
+ * en la wiki (un ejercicio cuyo enunciado vive fuera de las preguntas).
+ *
+ * Se marcan como `borrador` para que NO entren al simulacro/quiz general.
+ * Si en el futuro extraemos el caso como `Question.caseContext` o entidad
+ * propia, se pueden re-activar.
+ */
+const CASE_DEPENDENT_IDS = new Set<string>([
+  // Banco SAEE: cálculo continuo del ejercicio 172,5 kVA → factura mensual
+  "SAEE-003", "SAEE-004", "SAEE-005", "SAEE-006", "SAEE-007", "SAEE-008",
+  "SAEE-009", "SAEE-010", "SAEE-011", "SAEE-012", "SAEE-013", "SAEE-014", "SAEE-015",
+]);
+
+/**
+ * Heurística auxiliar para enunciados que mencionan explícitamente un caso
+ * externo. Captura los que no están en la lista pero deberían.
+ */
+function isCaseDependent(externalId: string | null, statement: string): boolean {
+  if (externalId && CASE_DEPENDENT_IDS.has(externalId)) return true;
+  const s = statement.toLowerCase();
+  return (
+    s.includes("caso resuelto") ||
+    s.includes("del caso") ||
+    s.includes("este caso") ||
+    s.includes("en el caso") ||
+    s.includes("siguiente caso") ||
+    s.includes("seguir con el caso")
+  );
+}
 
 const db = new PrismaClient();
 const log = new ImportLogger("import-questions");
@@ -133,9 +165,20 @@ async function importBankFile(filePath: string, fallbackTopicId: string) {
     //  - "validada"   → tema resuelve y hay ≥1 fuente, aunque sea sin página
     //  - "requiere_verificacion" → tema no resuelve o no hay fuentes
     let status: string;
+    const caseDep = isCaseDependent(parsed.externalId ?? null, parsed.statement);
     if (!parsed.correctMatched) status = "borrador";
-    else if (topicSlug && sourceIds.length > 0) status = "validada";
+    else if (caseDep) {
+      status = "borrador";
+      log.bump("borrador · caso resuelto sin contexto");
+    } else if (topicSlug && sourceIds.length > 0) status = "validada";
     else status = "requiere_verificacion";
+
+    // Restaurar acentos en textos visibles al usuario (la wiki original no
+    // tiene tildes por razones de codificación).
+    const statementFinal = restoreAccents(parsed.statement);
+    const explanationFinal = parsed.explanation ? restoreAccents(parsed.explanation) : null;
+    const optionsFinal = parsed.options.map((t) => restoreAccents(t));
+    const correctAnswerFinal = restoreAccents(parsed.correctAnswer);
 
     // Upsert pregunta
     const question = await db.question.upsert({
@@ -145,9 +188,9 @@ async function importBankFile(filePath: string, fallbackTopicId: string) {
         topicId,
         type: detectType(parsed),
         difficulty,
-        statement: parsed.statement,
-        correctAnswer: parsed.correctAnswer,
-        explanation: parsed.explanation,
+        statement: statementFinal,
+        correctAnswer: correctAnswerFinal,
+        explanation: explanationFinal,
         status,
         requiresVerification: questionRequiresVerification,
         createdFrom: `obsidian:${path.basename(filePath, ".md")}#${parsed.externalId}`,
@@ -157,9 +200,9 @@ async function importBankFile(filePath: string, fallbackTopicId: string) {
         topicId,
         type: detectType(parsed),
         difficulty,
-        statement: parsed.statement,
-        correctAnswer: parsed.correctAnswer,
-        explanation: parsed.explanation,
+        statement: statementFinal,
+        correctAnswer: correctAnswerFinal,
+        explanation: explanationFinal,
         status,
         requiresVerification: questionRequiresVerification,
         repetition: parsed.repetition,
@@ -170,10 +213,10 @@ async function importBankFile(filePath: string, fallbackTopicId: string) {
     // Reemplazar opciones (más simple que diff)
     await db.answerOption.deleteMany({ where: { questionId: question.id } });
     await db.answerOption.createMany({
-      data: parsed.options.map((text, i) => ({
+      data: optionsFinal.map((text, i) => ({
         questionId: question.id,
         text,
-        isCorrect: text === parsed.correctAnswer,
+        isCorrect: text === correctAnswerFinal,
         order: i,
       })),
     });

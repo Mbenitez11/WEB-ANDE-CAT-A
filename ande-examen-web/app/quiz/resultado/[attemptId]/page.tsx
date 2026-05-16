@@ -30,7 +30,15 @@ export default async function ResultadoPage({
               topic: { select: { slug: true, name: true } },
               options: { orderBy: { order: "asc" } },
               sources: {
-                include: { source: { include: { document: { select: { externalId: true, name: true } } } } },
+                include: {
+                  source: {
+                    include: {
+                      document: {
+                        select: { externalId: true, name: true, publicUrl: true },
+                      },
+                    },
+                  },
+                },
               },
             },
           },

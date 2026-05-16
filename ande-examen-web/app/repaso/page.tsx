@@ -31,7 +31,11 @@ export default async function RepasoPage() {
             topic: { select: { slug: true, name: true } },
             sources: {
               include: {
-                source: { include: { document: { select: { externalId: true, name: true } } } },
+                source: {
+                  include: {
+                    document: { select: { externalId: true, name: true, publicUrl: true } },
+                  },
+                },
               },
             },
           },
@@ -48,7 +52,11 @@ export default async function RepasoPage() {
             topic: { select: { slug: true, name: true } },
             sources: {
               include: {
-                source: { include: { document: { select: { externalId: true, name: true } } } },
+                source: {
+                  include: {
+                    document: { select: { externalId: true, name: true, publicUrl: true } },
+                  },
+                },
               },
             },
           },

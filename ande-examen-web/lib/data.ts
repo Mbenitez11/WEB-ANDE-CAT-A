@@ -86,7 +86,9 @@ export async function getQuestionsForTopic(
       options: { orderBy: { order: "asc" } },
       sources: {
         include: {
-          source: { include: { document: { select: { externalId: true, name: true } } } },
+          source: {
+            include: { document: { select: { externalId: true, name: true, publicUrl: true } } },
+          },
         },
       },
     },
@@ -96,7 +98,10 @@ export async function getQuestionsForTopic(
 export async function getSourceDocuments() {
   return db.sourceDocument.findMany({
     where: { duplicateOfId: null },
-    orderBy: { externalId: "asc" },
+    orderBy: [
+      { publicUrl: { sort: "desc", nulls: "last" } }, // priorizar canónicos
+      { externalId: "asc" },
+    ],
     include: {
       _count: { select: { duplicates: true, sources: true, ocrFlags: true } },
     },
@@ -152,6 +157,7 @@ export type SourceChipData = {
   page: number | null;
   section?: string;
   requiresVerification: boolean;
+  publicUrl?: string | null;
 };
 
 export function toSourceChips(
@@ -161,7 +167,7 @@ export function toSourceChips(
       page: number | null;
       section: string | null;
       requiresVerification: boolean;
-      document: { externalId: string; name: string };
+      document: { externalId: string; name: string; publicUrl?: string | null };
     };
   }>,
 ): SourceChipData[] {
@@ -172,5 +178,6 @@ export function toSourceChips(
     page: rel.source.page,
     section: rel.source.section ?? undefined,
     requiresVerification: rel.source.requiresVerification,
+    publicUrl: rel.source.document.publicUrl ?? null,
   }));
 }

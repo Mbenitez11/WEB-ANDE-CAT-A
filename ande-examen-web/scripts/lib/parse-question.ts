@@ -72,8 +72,10 @@ export function parseQuestionBlock(block: string): ParsedQuestion | null {
     return { ...empty(externalId, statement), reject: "sin Respuesta" };
   }
 
+  // El separador entre opciones es " / " (slash con espacios). Usar split por
+  // "/" pelado rompe valores que contienen unidades tipo "Gs/mes", "mm2/m", etc.
   const options = opciones
-    .split("/")
+    .split(/\s+\/\s+/)
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
   if (options.length < 2) {

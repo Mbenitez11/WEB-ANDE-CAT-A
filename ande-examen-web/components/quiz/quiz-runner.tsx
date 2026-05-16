@@ -55,6 +55,7 @@ type AnswerResult = {
     page: number | null;
     section?: string;
     requiresVerification: boolean;
+    publicUrl?: string | null;
   }>;
 };
 
@@ -160,7 +161,7 @@ export function QuizRunner({
               page: number | null;
               section: string | null;
               requiresVerification: boolean;
-              document: { externalId: string; name: string };
+              document: { externalId: string; name: string; publicUrl: string | null };
             };
           }) => ({
             id: rel.source.id,
@@ -169,6 +170,7 @@ export function QuizRunner({
             page: rel.source.page,
             section: rel.source.section ?? undefined,
             requiresVerification: rel.source.requiresVerification,
+            publicUrl: rel.source.document.publicUrl,
           }),
         ) ?? [];
 

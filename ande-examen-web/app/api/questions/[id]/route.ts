@@ -11,7 +11,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       sources: {
         include: {
           source: {
-            include: { document: { select: { name: true, documentType: true } } },
+            include: {
+              document: {
+                select: { externalId: true, name: true, documentType: true, publicUrl: true },
+              },
+            },
           },
         },
       },

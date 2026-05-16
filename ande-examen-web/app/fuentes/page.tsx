@@ -1,8 +1,9 @@
-import { FileText } from "lucide-react";
+import { ExternalLink, FileText } from "lucide-react";
 import { Topbar } from "@/components/layout/topbar";
 import { Footer } from "@/components/layout/footer";
 import { Badge } from "@/components/ui/badge";
 import { getSourceDocuments } from "@/lib/data";
+import { ANDE_MESA_EXAMINADORA } from "@/scripts/lib/source-urls";
 
 export const metadata = { title: "Fuentes" };
 
@@ -38,14 +39,27 @@ export default async function FuentesPage() {
           Fuentes normativas
         </h1>
         <p className="mt-4 max-w-2xl text-md leading-relaxed text-muted-foreground">
-          Documentos curados desde la bóveda Obsidian del proyecto. Cada documento tiene su
-          código F#### y enlaza a las preguntas que lo citan. Los duplicados se agrupan bajo
-          la fuente canónica.
+          Documentos curados desde la bóveda Obsidian del proyecto. Los archivos oficiales
+          (reglamentos, pliego, normas, decretos) linkean a la{" "}
+          <a
+            href={ANDE_MESA_EXAMINADORA}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="inline-flex items-center gap-1 underline-offset-4 hover:text-foreground hover:underline"
+          >
+            Mesa Examinadora de la ANDE
+            <ExternalLink className="size-3" strokeWidth={1.5} />
+          </a>
+          . Cada documento tiene su código F#### y los duplicados se agrupan bajo la fuente
+          canónica.
         </p>
 
         <div className="mt-6 flex flex-wrap gap-2">
           <Badge variant="neutral">{docs.length} documentos canónicos</Badge>
           <Badge variant="info">{linkedTotal} citas indexadas</Badge>
+          <Badge variant="success">
+            {docs.filter((d) => d.publicUrl).length} con link oficial
+          </Badge>
           {ocrTotal > 0 ? <Badge variant="warning">{ocrTotal} flags OCR</Badge> : null}
         </div>
 
@@ -71,6 +85,9 @@ export default async function FuentesPage() {
                 <th className="px-4 py-3 font-mono text-2xs uppercase tracking-widest text-muted-foreground text-right">
                   Citas
                 </th>
+                <th className="px-4 py-3 font-mono text-2xs uppercase tracking-widest text-muted-foreground text-right">
+                  Link
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -78,6 +95,20 @@ export default async function FuentesPage() {
                 const hasOcrFlags = d._count.ocrFlags > 0;
                 const stateText = d.processingState ?? "";
                 const isImage = d.documentType === "image";
+                const nameContent = (
+                  <div className="flex items-center gap-2">
+                    <FileText className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.5} />
+                    <span className="font-display text-foreground tracking-tight">
+                      {d.name}
+                    </span>
+                    {d.publicUrl ? (
+                      <ExternalLink
+                        className="size-3 shrink-0 text-muted-foreground/60"
+                        strokeWidth={1.5}
+                      />
+                    ) : null}
+                  </div>
+                );
                 return (
                   <tr
                     key={d.id}
@@ -87,12 +118,18 @@ export default async function FuentesPage() {
                       {d.externalId}
                     </td>
                     <td className="px-4 py-4">
-                      <div className="flex items-center gap-2">
-                        <FileText className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.5} />
-                        <span className="font-display text-foreground tracking-tight">
-                          {d.name}
-                        </span>
-                      </div>
+                      {d.publicUrl ? (
+                        <a
+                          href={d.publicUrl}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="block hover:text-primary"
+                        >
+                          {nameContent}
+                        </a>
+                      ) : (
+                        nameContent
+                      )}
                       {d.topicGuess ? (
                         <div className="mt-0.5 text-2xs text-muted-foreground">
                           {d.topicGuess}
@@ -121,6 +158,20 @@ export default async function FuentesPage() {
                     </td>
                     <td className="px-4 py-4 text-right font-mono text-2xs tabular-nums text-muted-foreground">
                       {d._count.sources}
+                    </td>
+                    <td className="px-4 py-4 text-right">
+                      {d.publicUrl ? (
+                        <a
+                          href={d.publicUrl}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="inline-flex items-center gap-1 text-2xs font-medium uppercase tracking-wider text-primary hover:text-primary-hover"
+                        >
+                          PDF <ExternalLink className="size-3" strokeWidth={1.5} />
+                        </a>
+                      ) : (
+                        <span className="font-mono text-2xs text-muted-foreground/50">—</span>
+                      )}
                     </td>
                   </tr>
                 );
