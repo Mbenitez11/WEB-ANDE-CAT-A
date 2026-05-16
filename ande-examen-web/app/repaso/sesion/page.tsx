@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 import { Topbar } from "@/components/layout/topbar";
 import { Footer } from "@/components/layout/footer";
 import { Button } from "@/components/ui/button";
@@ -8,33 +8,13 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { selectQuestionsForAttempt, shouldShowSourcesDuringAttempt } from "@/lib/quiz-engine";
 
-type Params = { topic: string };
-type SearchParams = { count?: string };
-
-export default async function QuizPage({
-  params,
-  searchParams,
-}: {
-  params: Promise<Params>;
-  searchParams: Promise<SearchParams>;
-}) {
+export default async function RepasoSesionPage() {
   const session = await auth();
-  if (!session?.user) {
-    const { topic } = await params;
-    redirect(`/login?callbackUrl=/quiz/${topic}`);
-  }
-
-  const { topic: slug } = await params;
-  const { count } = await searchParams;
-  const questionCount = Math.min(20, Math.max(1, Number(count) || 10));
-
-  const topic = await db.topic.findUnique({ where: { slug }, select: { id: true, name: true, slug: true } });
-  if (!topic) notFound();
+  if (!session?.user) redirect("/login?callbackUrl=/repaso/sesion");
 
   const questions = await selectQuestionsForAttempt(session.user.id, {
-    mode: "tema",
-    topicSlug: slug,
-    questionCount,
+    mode: "repaso",
+    questionCount: 10,
     includeUnverified: false,
   });
 
@@ -43,13 +23,12 @@ export default async function QuizPage({
       <>
         <Topbar />
         <main className="mx-auto max-w-3xl px-6 pb-24 pt-12 lg:px-10">
-          <h1 className="display-headline text-3xl text-foreground">Sin preguntas disponibles</h1>
+          <h1 className="display-headline text-3xl text-foreground">Cola vacía</h1>
           <p className="mt-4 text-sm text-muted-foreground">
-            Este tema no tiene preguntas validadas todavía. Probá con otro tema o corré el
-            importador.
+            Todavía no hay preguntas falladas ni guardadas para repasar.
           </p>
           <Button asChild className="mt-6">
-            <Link href="/temas">← Volver a temas</Link>
+            <Link href="/temas">Empezar a estudiar</Link>
           </Button>
         </main>
         <Footer />
@@ -60,8 +39,7 @@ export default async function QuizPage({
   const attempt = await db.quizAttempt.create({
     data: {
       userId: session.user.id,
-      mode: "tema",
-      topicId: topic.id,
+      mode: "repaso",
       totalQuestions: questions.length,
     },
     select: { id: true, mode: true, totalQuestions: true, createdAt: true },
@@ -73,23 +51,20 @@ export default async function QuizPage({
       <main className="mx-auto max-w-3xl px-6 pb-24 pt-12 lg:px-10">
         <div className="flex items-center gap-3">
           <span className="font-mono text-2xs uppercase tracking-widest text-foreground">
-            Quiz
+            Repaso
           </span>
           <span className="h-px w-8 bg-border-strong" />
           <span className="font-mono text-2xs uppercase tracking-widest text-muted-foreground">
-            {topic.name}
+            {questions.length} preguntas
           </span>
         </div>
-        <h1 className="display-section mt-5 text-3xl text-foreground">Práctica por tema</h1>
-        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-          Respondé y obtené feedback inmediato. Las fuentes se muestran tras cada respuesta.
-        </p>
+        <h1 className="display-section mt-5 text-3xl text-foreground">Sesión de repaso</h1>
 
         <div className="mt-10">
           <QuizRunner
             attempt={{
               id: attempt.id,
-              mode: "tema",
+              mode: "repaso",
               totalQuestions: attempt.totalQuestions,
               createdAt: attempt.createdAt.toISOString(),
             }}
@@ -103,7 +78,7 @@ export default async function QuizPage({
               topic: q.topic,
               options: q.options,
             }))}
-            showSourcesDuringAttempt={shouldShowSourcesDuringAttempt("tema")}
+            showSourcesDuringAttempt={shouldShowSourcesDuringAttempt("repaso")}
           />
         </div>
       </main>

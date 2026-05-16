@@ -4,7 +4,7 @@
 > decile *"leé SESSION.md y seguimos por donde quedamos"*. Este archivo se mantiene actualizado al
 > cerrar cada fase.
 
-Última actualización: **2026-05-16** · Sesión cerrada al final de **Fase 7**.
+Última actualización: **2026-05-16** · Sesión cerrada al final de **Fase 6** (con Fase 7 ya hecha).
 
 ---
 
@@ -40,7 +40,7 @@ Vitest · `tsx` para scripts. **`typedRoutes: true`** en `next.config.ts`.
 | 3    | Modelo Prisma                     | ✅ hecho        |
 | 4    | Frontend con mocks                | ✅ hecho        |
 | 5    | Backend / API + NextAuth          | ✅ hecho (2026-05-16) |
-| 6    | Motor de quizzes — UI conectada   | 🔜 **siguiente** |
+| 6    | Motor de quizzes — UI conectada   | ✅ hecho (2026-05-16) |
 | 7    | Importador Obsidian               | ✅ hecho (2026-05-16) |
 | 8    | Generador/validador de preguntas  | pendiente       |
 | 9–10 | Diseño avanzado + dashboard real  | pendiente       |
@@ -55,7 +55,59 @@ Vitest · `tsx` para scripts. **`typedRoutes: true`** en `next.config.ts`.
 
 ---
 
-## 4. Lo último que se hizo (Fase 7 — importador Obsidian)
+## 4. Lo último que se hizo (Fase 6 — UI conectada al backend)
+
+Reemplazo total de `lib/mock-data.ts` (queda en el repo por compatibilidad temporal, pero ya
+ningún page lo importa). Todas las páginas son Server Components que leen de Prisma directo
+vía [`lib/data.ts`](ande-examen-web/lib/data.ts); el quiz es un Client Component que llama
+a los endpoints REST.
+
+### Páginas conectadas
+
+| Ruta | Renderizado | Fuente de datos |
+|---|---|---|
+| `/temas` | Server | `getTopicsWithStats(userId?)` |
+| `/temas/[slug]` | Server | `getTopicBySlug` + `getQuestionsForTopic` |
+| `/quiz/[topic]` | Server + Client `QuizRunner` | `selectQuestionsForAttempt` + crea `QuizAttempt` |
+| `/quiz/resultado/[attemptId]` | Server | review completo del intento |
+| `/simulacro` | Server + Client `SimulacroForm` | config form → `POST /api/quiz/start` |
+| `/simulacro/[attemptId]` | Server + `QuizRunner` modo simulacro | sin feedback inmediato |
+| `/repaso` | Server | wrong answers + saved questions |
+| `/repaso/sesion` | Server + `QuizRunner` modo repaso | `selectQuestionsForAttempt({mode:"repaso"})` |
+| `/dashboard` | Server | `getUserProgress` + temas débiles + historial |
+| `/fuentes` | Server | `getSourceDocuments` (99 documentos canónicos) |
+
+### Componentes nuevos
+
+- [`components/quiz/quiz-runner.tsx`](ande-examen-web/components/quiz/quiz-runner.tsx) — Client component que orquesta el flujo: muestra pregunta, captura selección, `POST /api/quiz/answer`, en modo no-simulacro carga `/api/questions/[id]` para revelar la respuesta correcta + explicación + fuentes, avanza a la siguiente o finaliza con `/api/quiz/finish`. Maneja stats en vivo (correct/wrong) y barra de progreso.
+- [`components/quiz/simulacro-form.tsx`](ande-examen-web/components/quiz/simulacro-form.tsx) — Form de configuración (cantidad, temas, includeUnverified) que llama a `/api/quiz/start` y redirige a `/simulacro/[attemptId]`.
+
+### Helpers nuevos
+
+- [`lib/data.ts`](ande-examen-web/lib/data.ts) — accesores server-side a la DB para que los Server Components compongan sus datos sin doble round-trip por la API.
+  - `getTopicsWithStats(userId?)` — temas con `questionCount` y `progress` (0..1) si hay usuario
+  - `getTopicBySlug`, `getQuestionsForTopic`
+  - `getSourceDocuments` (filtra duplicados)
+  - `getUserProgress` — resumen + temas débiles/fuertes + últimos intentos
+  - `toSourceChips(rels)` — adapta el shape de Prisma al de `<SourceChip>`
+
+### Reglas de UX aplicadas
+
+- **Modo `practica`/`tema`/`repaso`**: feedback inmediato. Fuentes visibles tras responder.
+- **Modo `simulacro`**: NO revela respuesta. Fuentes y explicación recién en `/quiz/resultado/[id]`.
+- **Badge ⚠ "OCR dudoso"** se muestra automáticamente cuando `question.requiresVerification === true`.
+- **Si el tema no tiene preguntas validadas**, la página muestra un mensaje con el comando `npm run import:obsidian`.
+- **Las rutas privadas redirigen a `/login?callbackUrl=...`** (ya lo hacía el middleware; las pages también validan `session` server-side antes de crear `QuizAttempt`).
+
+### Pendientes conocidos
+
+- El simulacro re-selecciona las preguntas en `/simulacro/[attemptId]` cada vez que se entra a la URL en lugar de persistir el set asignado al intento. Si el usuario refresca, le aparecen preguntas distintas. Fix: persistir las preguntas asignadas (tabla `QuizAttemptQuestion` o JSON en `metadata`).
+- "Guardar pregunta" / "marcar para repaso" desde el quiz: el endpoint `POST /api/quiz/save-question` existe pero el botón en el `QuizRunner` no está. Próxima iteración.
+- Confetti / celebración al terminar bien un intento: no implementado (low prio).
+
+---
+
+## 4-bis. Lo hecho en Fase 7 (importador Obsidian)
 
 ### Scripts nuevos
 
@@ -161,28 +213,31 @@ Questions by topic:
 
 ---
 
-## 5. Decisión pendiente al retomar (post Fase 7)
+## 5. Decisión pendiente al retomar (post Fase 6)
 
-La DB ya tiene **79 preguntas validadas** con fuentes, distribuidas en 6 temas. El frontend
-todavía consume `lib/mock-data.ts`. El siguiente paso natural es **Fase 6**: conectar la UI a la API.
+El loop de estudio funciona end-to-end: login → elegir tema → quiz con feedback inmediato y
+fuentes → resultado → dashboard de progreso. Quedan tres caminos razonables:
 
-### Plan sugerido para la próxima sesión
+### A — Fase 14 (agente IA con Vercel AI SDK) **[más alto impacto]**
+Llenar `KnowledgeChunk` con los `.md` de `wiki/temas/`, `wiki/datos/`, `wiki/casos/`, y montar
+el chat en `/agente` con tool calling (`searchKnowledge`, `getQuestionById`, etc.). Implica:
+- Instalar `ai` + provider (`@ai-sdk/anthropic` o `@ai-sdk/openai`).
+- Script `scripts/import-chunks.ts` que parse Markdown y persista chunks con `topicId` y `sourceId`.
+- Búsqueda híbrida (texto + ranking simple) en `lib/ai/rag.ts`.
+- Sistema de tools en `lib/ai/tools.ts` y prompt en `lib/ai/prompts.ts`.
 
-1. **`/temas`** → consumir `/api/topics` (ya devuelve `_count.questions` por tema, útil para
-   tarjetas).
-2. **`/temas/[slug]`** → consumir `/api/topics/[slug]` + `/api/questions?topic=...&limit=10`.
-3. **`/quiz/[topic]`** → reemplazar mock por:
-   - `POST /api/quiz/start` con `{ mode: "tema", topicSlug, questionCount: 10 }`.
-   - Loop `POST /api/quiz/answer` por pregunta.
-   - `POST /api/quiz/finish` al cerrar.
-   - Mostrar fuentes solo después de responder (modo `practica`) o al final (`simulacro`).
-   - Badge ⚠ cuando `question.requiresVerification === true`.
-4. **`/repaso`** → `POST /api/quiz/start` con `mode: "repaso"`.
-5. **`/simulacro`** → form de configuración → `POST /api/quiz/start` con `mode: "simulacro"`.
-6. **`/dashboard`** → consumir `/api/progress` (resumen + weakTopics).
+### B — Fase 8 (revisión de los 4 borrador + NP-006)
+Crear `/admin/revision` para `reviewer`/`admin`: listar `status: borrador`, mostrar respuesta vs
+opciones, dejar editar manualmente. También permite validar las preguntas en `requiere_verificacion`.
 
-Una vez Fase 6 funcione, lo natural es Fase 8 (validaciones de calidad — los 4 borrador) o Fase 14
-(agente IA con `KnowledgeChunk` — requiere importar la wiki de temas/datos como chunks).
+### C — Polish + features sueltas
+- Botón "guardar pregunta" en el quiz.
+- Persistir el set de preguntas asignadas a un simulacro (resolver el refresh issue).
+- Botón "siguiente intento del mismo tema" en `/quiz/resultado`.
+- Página de perfil `/profile` + `/settings`.
+
+**Mi sugerencia para la próxima sesión:** **A**. El proyecto cobra valor real cuando el tutor IA
+puede explicar respuestas usando la wiki como fuente.
 
 ---
 
