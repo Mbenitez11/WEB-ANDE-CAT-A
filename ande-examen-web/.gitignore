@@ -1,0 +1,37 @@
+# deps
+node_modules
+.pnpm-store
+
+# next
+.next
+out
+build
+
+# env
+.env
+.env*.local
+
+# db
+prisma/dev.db
+prisma/dev.db-journal
+prisma/migrations/dev/
+
+# data exports (snapshots opcionales, no versionar por default)
+data/snapshots
+data/seed/*.local.json
+
+# logs / sistema
+*.log
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# vscode
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.recommended.json
+
+# tests
+coverage
+playwright-report
+.playwright

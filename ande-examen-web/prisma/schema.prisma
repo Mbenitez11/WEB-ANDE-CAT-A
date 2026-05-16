@@ -1,0 +1,438 @@
+// ANDE EXAMEN — Schema de base de datos (Prisma)
+//
+// Convenciones:
+// - SQLite en desarrollo. Para producción cambiar provider a "postgresql".
+//   Los tipos String[] se simulan como CSV en SQLite (ver helper en lib/db.ts);
+//   los Json se almacenan como TEXT.
+// - Enums se modelan como String + check (SQLite no soporta enums nativos).
+//   La validación a nivel app la hace Zod (lib/zod-schemas.ts).
+// - Todo recurso "fuente-aware" expone `requiresVerification` para alimentar
+//   la regla de UX: "Fuente pendiente de verificación OCR".
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// USUARIOS, AUTENTICACIÓN Y PROGRESO
+// ============================================================
+
+model User {
+  id           String   @id @default(cuid())
+  name         String?
+  email        String   @unique
+  emailVerified DateTime?
+  passwordHash String?  // null si sólo OAuth
+  image        String?
+  role         String   @default("student") // student | reviewer | admin
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  profile         UserProfile?
+  accounts        Account[]      // Auth.js OAuth (futuro)
+  sessions        Session[]      // Auth.js sessions
+  attempts        QuizAttempt[]
+  savedQuestions  SavedQuestion[]
+  topicProgress   UserTopicProgress[]
+  conversations   AiConversation[]
+  reviewActions   ReviewAction[]
+}
+
+model UserProfile {
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  displayName         String?
+  career              String?
+  targetExam          String?  @default("ANDE Categoría A")
+  studyGoal           String?
+  preferredDifficulty String?  @default("media") // basica | media | dificil | examen
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Auth.js v5 — tablas estándar (preparadas; OAuth no se activa todavía)
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ============================================================
+// TEMARIO
+// ============================================================
+
+model Topic {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  parentId    String?
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  parent      Topic?  @relation("TopicTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Topic[] @relation("TopicTree")
+  questions   Question[]
+  chunks      KnowledgeChunk[]
+  progress    UserTopicProgress[]
+  attempts    QuizAttempt[]
+  contradictions Contradiction[]
+}
+
+// ============================================================
+// FUENTES — documento canónico + cita puntual
+// ============================================================
+
+// Documento físico (PDF/docx/imagen). 1 fila por documento canónico
+// (los DUP### del INVENTARIO_ARCHIVOS.csv apuntan acá vía duplicateOfId).
+model SourceDocument {
+  id                  String   @id @default(cuid())
+  externalId          String   @unique          // "F0018"
+  name                String                     // nombre original
+  filePath            String                     // ruta relativa al vault o al raw/
+  documentType        String                     // pdf | docx | image | md | gdoc | other
+  sha256              String?                    // del INVENTARIO_ARCHIVOS.csv
+  totalPages          Int?
+  topicGuess          String?                    // tema_probable del CSV
+  processingState     String?                    // texto embebido / OCR / etc.
+  duplicateGroup      String?                    // "DUP013"
+  duplicateOfId       String?                    // fuente canónica
+  notes               String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  duplicateOf   SourceDocument?  @relation("DocDuplicates", fields: [duplicateOfId], references: [id], onDelete: SetNull)
+  duplicates    SourceDocument[] @relation("DocDuplicates")
+  sources       Source[]
+  ocrFlags      OcrFlag[]
+}
+
+// Cita puntual = documento + página + sección + texto citado
+model Source {
+  id                   String   @id @default(cuid())
+  documentId           String
+  section              String?                   // "Tasa de conexión"
+  page                 Int?                      // null si pendiente
+  quote                String?                   // fragmento literal corto
+  confidence           Float?                    // 0..1
+  requiresVerification Boolean  @default(false)
+  notes                String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  document  SourceDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  questions QuestionSource[]
+  chunks    KnowledgeChunk[]
+  contradictionsA Contradiction[] @relation("ContradictionSourceA")
+  contradictionsB Contradiction[] @relation("ContradictionSourceB")
+
+  @@index([documentId, page])
+}
+
+// Flag de OCR dudoso parseado desde DUDAS_OCR_TRANSCRIPCION.md
+model OcrFlag {
+  id          String   @id @default(cuid())
+  documentId  String
+  page        Int?                                  // null si "imagen completa"
+  confidence  Float?
+  fragment    String?
+  reviewed    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  document SourceDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId, page])
+}
+
+// ============================================================
+// PREGUNTAS
+// ============================================================
+
+model Question {
+  id                   String   @id @default(cuid())
+  externalId           String?  @unique           // "BT-001", "bt-001" del simulacro
+  topicId              String
+  type                 String                     // opcion_multiple | verdadero_falso | calculo_numerico | caso_practico | conceptual | normativa
+  difficulty           String   @default("media") // basica | media | dificil | examen
+  statement            String
+  explanation          String?
+  correctAnswer        String?                    // libre para tipos no-MC
+  status               String   @default("borrador") // borrador | validada | requiere_verificacion | descartada
+  requiresVerification Boolean  @default(false)
+  createdFrom          String?                    // "obsidian:banco-preguntas-bt#BT-001" | "simulacros-ande:bt-001" | "ai:generated"
+  repetition           String?                    // alta | media | baja
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  topic    Topic           @relation(fields: [topicId], references: [id])
+  options  AnswerOption[]
+  sources  QuestionSource[]
+  tags     QuestionTagOnQuestion[]
+  answers  QuizAnswer[]
+  saved    SavedQuestion[]
+
+  @@index([topicId, status])
+  @@index([status, requiresVerification])
+}
+
+model AnswerOption {
+  id          String   @id @default(cuid())
+  questionId  String
+  text        String
+  isCorrect   Boolean  @default(false)
+  explanation String?
+  order       Int      @default(0)
+
+  question Question     @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answers  QuizAnswer[]
+
+  @@index([questionId])
+}
+
+model QuestionSource {
+  questionId String
+  sourceId   String
+
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  source   Source   @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@id([questionId, sourceId])
+}
+
+model QuestionTag {
+  id    String @id @default(cuid())
+  name  String @unique               // "repetida-alta", "examen-2024", "caacupe"
+
+  questions QuestionTagOnQuestion[]
+}
+
+model QuestionTagOnQuestion {
+  questionId String
+  tagId      String
+
+  question Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  tag      QuestionTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([questionId, tagId])
+}
+
+// ============================================================
+// QUIZ — intentos y respuestas
+// ============================================================
+
+model QuizAttempt {
+  id              String   @id @default(cuid())
+  userId          String
+  mode            String                         // practica | tema | simulacro | repaso
+  topicId         String?
+  totalQuestions  Int      @default(0)
+  correctCount    Int      @default(0)
+  wrongCount      Int      @default(0)
+  blankCount      Int      @default(0)
+  score           Float    @default(0)
+  durationSeconds Int      @default(0)
+  finishedAt      DateTime?
+  createdAt       DateTime @default(now())
+
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic   Topic?       @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  answers QuizAnswer[]
+
+  @@index([userId, createdAt])
+}
+
+model QuizAnswer {
+  id               String   @id @default(cuid())
+  attemptId        String
+  questionId       String
+  selectedOptionId String?
+  isCorrect        Boolean  @default(false)
+  timeSpentSeconds Int      @default(0)
+  createdAt        DateTime @default(now())
+
+  attempt        QuizAttempt   @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question       Question      @relation(fields: [questionId], references: [id])
+  selectedOption AnswerOption? @relation(fields: [selectedOptionId], references: [id], onDelete: SetNull)
+
+  @@index([attemptId])
+}
+
+model SavedQuestion {
+  id         String   @id @default(cuid())
+  userId     String
+  questionId String
+  note       String?
+  createdAt  DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, questionId])
+}
+
+model UserTopicProgress {
+  id            String   @id @default(cuid())
+  userId        String
+  topicId       String
+  answeredCount Int      @default(0)
+  correctCount  Int      @default(0)
+  wrongCount    Int      @default(0)
+  accuracy      Float    @default(0)
+  lastStudiedAt DateTime?
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic Topic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, topicId])
+}
+
+// ============================================================
+// CONOCIMIENTO (para RAG / agente IA)
+// ============================================================
+
+model KnowledgeChunk {
+  id                   String   @id @default(cuid())
+  topicId              String?
+  sourceId             String?                    // cita puntual
+  title                String?
+  content              String                     // texto del chunk
+  chunkType            String                     // normativa | dato_numerico | pregunta | caso_practico | contradiccion | duda_ocr | resumen
+  filePath             String?                    // ruta original en la wiki
+  page                 Int?
+  section              String?
+  requiresVerification Boolean  @default(false)
+  metadataJson         String?                    // Json: { valor, unidad, vigencia, tags, ... }
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  topic     Topic?      @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  source    Source?     @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  embedding Embedding?
+
+  @@index([chunkType])
+  @@index([topicId, chunkType])
+}
+
+// Embeddings opcionales (detrás de feature flag).
+// SQLite no tiene vector nativo; almacenamos blob y buscamos cosine en JS.
+// Para Postgres + pgvector cambiar `vector` a tipo Vector.
+model Embedding {
+  id        String   @id @default(cuid())
+  chunkId   String   @unique
+  model     String                                 // "text-embedding-3-small", etc.
+  dim       Int
+  vector    Bytes                                  // Float32Array serializado
+  createdAt DateTime @default(now())
+
+  chunk KnowledgeChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+}
+
+// Contradicciones normativas (entidad de primera clase)
+model Contradiction {
+  id          String   @id @default(cuid())
+  topicId     String?
+  title       String
+  statementA  String
+  statementB  String
+  sourceAId   String?
+  sourceBId   String?
+  status      String   @default("posible_diferencia") // firme | posible_diferencia | resuelta
+  impact      String?                                  // qué memorizar / qué evitar afirmar
+  resolution  String?                                  // texto cuando status=resuelta
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  topic   Topic?  @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  sourceA Source? @relation("ContradictionSourceA", fields: [sourceAId], references: [id], onDelete: SetNull)
+  sourceB Source? @relation("ContradictionSourceB", fields: [sourceBId], references: [id], onDelete: SetNull)
+}
+
+// ============================================================
+// AGENTE IA
+// ============================================================
+
+model AiConversation {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages AiMessage[]
+
+  @@index([userId, updatedAt])
+}
+
+model AiMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  role           String                            // user | assistant | system | tool
+  content        String
+  sourcesJson    String?                           // Json: [{ documentName, page, section, requiresVerification }]
+  toolName       String?
+  toolCallId     String?
+  createdAt      DateTime @default(now())
+
+  conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+// ============================================================
+// REVISIÓN / AUDIT
+// ============================================================
+
+model ReviewAction {
+  id          String   @id @default(cuid())
+  reviewerId  String
+  targetType  String                                // question | source | chunk | contradiction
+  targetId    String
+  action      String                                // approve | reject | edit | flag_verified | flag_unverified
+  before      String?                               // Json snapshot
+  after       String?                               // Json snapshot
+  note        String?
+  createdAt   DateTime @default(now())
+
+  reviewer User @relation(fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@index([targetType, targetId])
+}
