@@ -55,13 +55,16 @@ async function resolveSource(docInfo: DocInfo, page: number | null): Promise<str
     return existing.id;
   }
 
-  const requiresVerification = page == null || isDocSuspect(docInfo);
+  // requiresVerification a nivel `Source` se marca solo si el documento es OCR/imagen.
+  // Que falte la página NO es motivo para flag — la wiki original simplemente no
+  // siempre anota la página, pero el texto es confiable.
+  const requiresVerification = isDocSuspect(docInfo);
   const created = await db.source.create({
     data: {
       documentId: docInfo.id,
       page,
       requiresVerification,
-      confidence: requiresVerification ? null : 0.9,
+      confidence: requiresVerification ? 0.6 : 0.9,
     },
     select: { id: true },
   });

@@ -110,8 +110,14 @@ export function QuizRunner({
   const question = questions[currentIdx];
   const isLast = currentIdx === questions.length - 1;
 
-  async function submitAnswer() {
-    if (!question || !selected || submitting) return;
+  /**
+   * Envía la respuesta al backend. En modo tema/practica/repaso además
+   * carga los detalles para revelar respuesta correcta + explicación + fuentes.
+   * En modo simulacro solo guarda y suma stats (el reveal viene en /quiz/resultado).
+   * Devuelve true si se envió exitosamente (o si no había nada que enviar).
+   */
+  async function submitAnswer(): Promise<boolean> {
+    if (!question || !selected || submitting) return false;
     setSubmitting(true);
     const timeSpentSeconds = Math.floor((Date.now() - startedAt) / 1000);
     try {
@@ -128,22 +134,24 @@ export function QuizRunner({
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         toast.error(body?.error ?? "No se pudo guardar la respuesta");
-        setSubmitting(false);
-        return;
+        return false;
       }
       const { answer } = (await res.json()) as { answer: { isCorrect: boolean } };
+      setStats((s) =>
+        answer.isCorrect
+          ? { ...s, correct: s.correct + 1 }
+          : { ...s, wrong: s.wrong + 1 },
+      );
 
-      // En modo simulacro NO revelamos respuesta. Solo avanzamos.
-      if (attempt.mode === "simulacro") {
-        setStats((s) => (answer.isCorrect ? { ...s, correct: s.correct + 1 } : { ...s, wrong: s.wrong + 1 }));
-        advanceOrFinish();
-        return;
-      }
+      // En modo simulacro: NO revelamos respuesta. Solo registramos.
+      if (attempt.mode === "simulacro") return true;
 
-      // Obtener detalles de la pregunta (respuesta correcta, explicación, fuentes)
+      // Resto de modos: cargar detalles para revelar.
       const detailsRes = await fetch(`/api/questions/${question.id}`);
       const details = detailsRes.ok ? await detailsRes.json() : null;
-      const correctOpt = details?.question?.options?.find((o: { isCorrect: boolean }) => o.isCorrect);
+      const correctOpt = details?.question?.options?.find(
+        (o: { isCorrect: boolean }) => o.isCorrect,
+      );
       const sources =
         details?.question?.sources?.map(
           (rel: {
@@ -164,9 +172,6 @@ export function QuizRunner({
           }),
         ) ?? [];
 
-      setStats((s) =>
-        answer.isCorrect ? { ...s, correct: s.correct + 1 } : { ...s, wrong: s.wrong + 1 },
-      );
       setRevealed({
         isCorrect: answer.isCorrect,
         selectedOptionId: selected,
@@ -174,14 +179,33 @@ export function QuizRunner({
         explanation: details?.question?.explanation ?? null,
         sources,
       });
+      return true;
     } finally {
       setSubmitting(false);
     }
   }
 
-  function advanceOrFinish() {
+  /**
+   * En simulacro: guarda la respuesta y avanza en una sola acción.
+   * En otros modos: solo avanza (la respuesta ya se guardó al revelar).
+   */
+  async function advanceOrFinish() {
+    if (attempt.mode === "simulacro") {
+      if (selected) {
+        const ok = await submitAnswer();
+        if (!ok) return;
+      }
+      if (isLast) {
+        await finishAttempt();
+        return;
+      }
+      setCurrentIdx((i) => i + 1);
+      setSelected(null);
+      return;
+    }
+
     if (isLast) {
-      void finishAttempt();
+      await finishAttempt();
       return;
     }
     setCurrentIdx((i) => i + 1);
@@ -375,8 +399,27 @@ export function QuizRunner({
 
       {/* Botón principal */}
       <div className="flex justify-end gap-3">
-        {revealed || attempt.mode === "simulacro" ? (
-          <Button onClick={advanceOrFinish} disabled={finishing || (!revealed && !selected)} size="lg">
+        {attempt.mode === "simulacro" ? (
+          <Button
+            onClick={advanceOrFinish}
+            disabled={!selected || submitting || finishing}
+            size="lg"
+          >
+            {submitting || finishing ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                {finishing ? " Cerrando…" : null}
+              </>
+            ) : isLast ? (
+              <>Responder y finalizar</>
+            ) : (
+              <>
+                Responder y siguiente <ChevronRight className="size-4" />
+              </>
+            )}
+          </Button>
+        ) : revealed ? (
+          <Button onClick={advanceOrFinish} disabled={finishing} size="lg">
             {finishing ? (
               <>
                 <Loader2 className="size-4 animate-spin" /> Cerrando…
